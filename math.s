@@ -103,7 +103,7 @@ memset:
     orr     r1,     r1,     r6                      ; r1 |= r6 (word is filled with the same byte)
 
     and		r6,		r2,		#0x3		; calc remainder: r6 = r2 % 4
-    bic     r2,     r2,     #0x3        ; Ditch remainder
+    bic     r2,     r2,     #0x3        ; Ditch remainder: r2 = r2 & (~0x3)
 
 memset_loop:
     cmp		r5,		r2					; r5 < r2 ? break : keep iterating
@@ -120,15 +120,16 @@ memset_loop_fin:
     sub     r8,     r8,     r6          ; r8 = 4 - r6 = the amount in r7 to preserve
     mov     r4,     #0xFF000000         ; begin mask
     mov     r2,     #0x1                ; start
-    mov     r3,     #0x8
-    mov     r6,     #0xFF
+    mov     r3,     #0x8                ; create a growable bitmask
+    mov     r6,     #0xFF000000
 
-memset_mask_loop:
+memset_mask_loop:                       ; grow the mask iteratively
     cmp     r2,     r8
     beq     memset_mask_loop_fin
     orr     r4,     r4,     r6,     lsr     r3
     add     r2,     r2,     #0x1
     add     r3,     r3,     #0x8
+    b       memset_mask_loop
 
 memset_mask_loop_fin:
     and     r3,     r7,     r4      ; store what we want to preserve in r3
@@ -143,12 +144,13 @@ memset_fin:
 memset_test:
     stmdb	r13!,	{r0-r8, r10-r11, lr}	; setup our stack
     mov		r11,	r13
-    sub		r13,	r13,	#0x8			; sub 8 bytes
+    sub		r13,	r13,	#0xC			; alloc n bytes
 
-    mov		r0,		r13					    ; pointer
+    mov		r0,		r13  					; pointer
     mov     r1,     #0xEF
-    mov		r2,		#0xB
+    mov		r2,		#0x9
     bl		memset
+    add     r13,    r13,    #0xC
     ldmfd  r13!,    {r0-r8, r10-r11, pc}
 
 ;============================
@@ -272,14 +274,16 @@ smul_test:
     mov		r0,		#0x3
     mov		r1, 	#-4
     bl		smul
-    ldmfd  r13!,   {r0-r8, r10-r11, pc}
+    ldmfd  r13!,    {r0-r8, r10-r11, pc}
 
 lmul:
-    stmdb	r13!,	{r4, r11, lr}
+    stmdb	r13!,   {r0-r8, r10-r11, lr}
     mov		r11,		r13
     sub		r13,		r13,		#0x34 	; a, the remainder, x (the absolute value of b),
             ; the sign, x's iterator, and (up to) 9 sequential 32-bit sums
             ; the sign and x's iterator can both fit into 16 bits
+
+    mov
 
     ;------------------------------
     ; assess the signs of a and b
@@ -297,7 +301,7 @@ lmul_check_b_sign:
     orr		r4,		r4,		#0x2
 
 lmul_store_sign:
-    str		r4,		[r13, 	#-12]	; store the sign value for later
+    str		r4,		[r11, 	#-12]	; store the sign value for later
 
 ;------------------------------
 ; initialize the other locals
@@ -305,23 +309,25 @@ lmul_store_sign:
 
     ; store a's abs val, which is used as an initialization value in the loop
     bl		abs
-    str		r0,		[r13,	#-20]
+    str		r0,		[r11,	#-20]
 
 
     ; now, store b's abs val
     mov		r0,		r1
     bl		abs
-    str		r0,		[r13, 	#-4]		; x = abs(b)
+    str		r0,		[r11, 	#-4]		; x = abs(b)
 
     ; take care of the rest
     mov		r4,		#0x0
-    str		r4,		[r13,	#-8] 	; remainder = 0
-    str		r4,		[r13,	#-16]	; xj = 0 (x's iterator)
+    str		r4,		[r11,	#-8] 	; remainder = 0
+    str		r4,		[r11,	#-16]	; xj = 0 (x's iterator)
 
     ; MEMSET the buffer of 9 * 4 bytes of memory - remember, these are integers
     ; representing the sums
+    mov     r0,     r13             ; base is bottom
 
-    ldmfd	r13!,	{r4, r11, lr}
+
+    ldmfd	r13!,	{r0-r8, r10-r11, lr}
 
 
 is_mul_of_five:
