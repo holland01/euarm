@@ -19,10 +19,7 @@
 .global _start
 
 ;		TODO
-;       finish memset test
-;       find out whether or not memory is word addressable or byte
-;           addressable - if necessary, adjust accordingly.
-;       add remainder support
+;       finish implementation of cimpl.c
 
 
 ;		division with signed values still needs to be implemented...
@@ -40,6 +37,53 @@ wordmask:
     mov		pc,		lr
 
 ;============================
+;	    ipow
+;	    returns x ^ y, where
+;       x -> r0
+;       y -> r1
+;============================
+
+ipow:
+    stmfd   r13!,   {r4-r8, r10-r11, lr}
+    mov     r2,     #0x1    ; current value
+    mov     r3,     #0x0    ; current power
+    mov     r4,     r0      ; multiplier
+    mov     r5,     r1      ; end power
+
+ipow_loop:
+    cmp     r3,     r5
+    beq     ipow_finish
+    mov     r0,     r2  ; r2 is our value
+    mov     r1,     r4  ; always mul by r4 since it remains constant
+    bl      smul
+    mov     r2,     r0  ; restore state
+    add     r3,     r3,     #0x1
+    b       ipow_loop
+
+ipow_finish:
+    mov     r0,     r2
+    ldmfd   r13!,   {r4-r8, r10-r11, pc}
+
+ipow_test:
+    stmfd   r13!,   {r4-r8, r10-r11, lr}
+    mov     r0,     #0xA
+    mov     r1,     #0x3
+    bl      ipow
+    nop
+
+    mov     r0,     #0x10
+    mov     r1,     #0x3
+    bl      ipow
+    nop
+
+    mov     r0,     #-0x10
+    mov     r1,     #0x2
+    bl      ipow
+    nop
+
+    ldmfd   r13!,   {r4-r8, r10-r11, pc}
+
+;============================
 ;		div
 ;		returns floor(a / b) in addition to the remainder, where
 ;		a -> r0
@@ -49,7 +93,7 @@ wordmask:
 ;============================
 
 div:
-    stmdb	r13!,	{r4, lr}
+    stmfd	r13!,	{r4-r8, r10-r11, lr}
     mov		r4, 		#0x0			; initialize counter
 
 div_loop:
@@ -62,10 +106,10 @@ div_loop:
 div_stop:
     mov		r1,		r0			; return the remainder as well
     mov		r0,		r4			;
-    ldmfd	r13!,	{r4, pc}		;
+    ldmfd	r13!,	{r4-r8, r10-r11, pc}		;
 
 div_test:
-    stmdb  r13!,   {r0-r8, r10-r11, lr}
+    stmfd  r13!,   {r0-r8, r10-r11, lr}
     mov		r0,		#0x100
     mov		r1,		#0x2
     bl		div
@@ -91,7 +135,7 @@ swap:
 ;============================
 
 memset:
-    stmdb	r13!,	{r3-r8, r10-r11, lr}
+    stmfd	r13!,	{r3-r8, r10-r11, lr}
     mov		r11,	r13
     ;mov     r4,     r2,     lsr     #0x2        ; set iteration count = r2 >> 2 = r2 / 4
     mov		r5,		#0x0					; counter
@@ -142,7 +186,7 @@ memset_fin:
     ldmfd	r13!,	{r3-r8, r10-r11, pc}
 
 memset_test:
-    stmdb	r13!,	{r0-r8, r10-r11, lr}	; setup our stack
+    stmfd	r13!,	{r3-r8, r10-r11, lr}	; setup our stack
     mov		r11,	r13
     sub		r13,	r13,	#0xC			; alloc n bytes
 
@@ -151,21 +195,21 @@ memset_test:
     mov		r2,		#0x9
     bl		memset
     add     r13,    r13,    #0xC
-    ldmfd  r13!,    {r0-r8, r10-r11, pc}
+    ldmfd  r13!,    {r3-r8, r10-r11, pc}
 
 ;============================
 ;		negate
 ;		returns -a
 ;============================
 negate:
-    stmdb	r13!,	{r3-r8, r10-r11, lr}
+    stmfd	r13!,	{r4-r8, r10-r11, lr}
     mov		r4,		r0			; tmp = r0
 
     bl		wordmask			         ; r0 = 0xFFFFFFFF
     bic		r0,		r0,		r4	         ; r0 = r0 & ( ~tmp )
     add		r0,		r0,		#0x1         ; two's compliment
 
-    ldmfd	r13!,	{r3-r8, r10-r11, pc}
+    ldmfd	r13!,	{r4-r8, r10-r11, pc}
 
 ;============================
 ;		abs
@@ -173,7 +217,7 @@ negate:
 ;============================
 
 abs:
-    stmdb	r13!,	{r11, lr}
+    stmfd	r13!,	{r11, lr}
     cmp		r0,		#0x0
     bge		abs_end			; a < 0?
     bl		negate			; a = -a
@@ -181,11 +225,11 @@ abs_end:
     ldmfd	r13!,	{r11, pc}
 
 abs_test:
-    stmdb  r13!,   {r0-r8, r10-r11, lr}
+    stmfd  r13!,   {r3-r8, r10-r11, lr}
     mov		r0,		#-4
     bl		abs
     orr		r0,		r0,		#0x0
-    ldmfd  r13!,   {r0-r8, r10-r11, pc}
+    ldmfd  r13!,   {r3-r8, r10-r11, pc}
 ;end
 
 ;============================
@@ -203,87 +247,109 @@ abs_test:
 ;============================
 
 smul:
-    stmdb	       r13!,	          {r4-r6, r11, lr}
-    mov		       r6,		      #0x0			; = sign_flags
+    stmfd	       r13!,	      {r4-r8, r10-r11, lr}
+    mov		       r6,     #0x0			; = sign_flags
 
-    cmp		       r0,		      #0x0			; a < 0 ?
+    cmp		       r0,     #0x0			; a < 0 ?
+    beq            smul_return          ; bail on zero
     blt		       smul_negate0			; make a note of it...
     b		       smul_cmpr1
+
 smul_negate0:
     orr		       r6,	    r6,	   #0x1	; sign_flags |= 1
     bl		       negate				; = abs(a)
 
 smul_cmpr1:
-    cmp		       r1,			   #0x0	; b < 0 ?
+    cmp		       r1,     #0x0	        ; b < 0 ?
+    moveq          r0,     #0x0         ; if r1 == 0, then our product is 0.
+    beq            smul_return          ; bail on zero
     blt		       smul_negate1			; make a note of it...
     b		       smul_check_swap
+
 smul_negate1:
-    orr		       r6,		r6,		#0x2	  ; sign_flags |= 2
-    mov		       r4,		r0			      ; shuffle things around so we can pass r0 = r1 to negate function
-    stmdb	       r13!,	{r4}			; save r4, since it's used by negate
+    orr	        r6,		r6,		#0x2	; sign_flags |= 2
+    mov	        r4,		r0			    ; shuffle things around so we can pass
+                                        ; r0 = r1 to negate function
+    mov	        r0,		r1
+    bl	        negate                  ; make r1 the absolute value
 
-    mov		       r0,		r1
-    bl		       negate
-
-    ldmfd	       r13!,    {r4}
-
-    mov		       r1, 		r0
-    mov		       r0,		r4
+    mov	        r1,     r0
+    mov		    r0,		r4
 
 smul_check_swap:
-    cmp		       r0,		r1		; swap a and b if a < b, to decrease iteration count
-    blt		       smul_swap
-    b		       smul_loop
-smul_swap:
-    bl		       swap
+    cmp		r0,		r1		      ; swap a and b if a < b,
+                                  ; to decrease iteration count
+    bllt    swap
 
-    mov		       r4,		#0x1		; = count
-    mov		       r5,		r0		; = a
+    mov		r4,		#0x0	      ; = count
+    mov		r5,		#0x0		  ; = product-to-be
 
-smul_loop:									; do the actual multiplication...
-    cmp		       r4,		r1
-    bge		       smul_has_negative
-    add		       r0,		r0,		r5
-    add		       r4,		r4,		#0x1
-    b		       smul_loop
+smul_loop:					      ; do the actual multiplication...
+    cmp		r4,		r1            ; while r4 < r1
+    bge		smul_loop_end
+    add		r5,		r5,		r0    ; r5 += r0
+    add		r4,		r4,		#0x1  ; r4++
+    b		smul_loop             ;
 
-smul_has_negative:							; (a < 0) or (b < 0)?
-    cmp		r6,		#0x0
-    bne		smul_check_negative	; if so, do we have two negative values or one?
-    b		smul_return
 
-;		compute the value of (r6 & 0x1) ^ ((r6 & 0x2) >> 1).
-;		if the value is > 0, we have a negative
+smul_loop_end:
+    mov     r0,     r5            ; load the product from the loop
+
+    cmp		r6,		#0x0          ; (a < 0) or (b < 0)?
+    beq     smul_return	          ; if r6 == 0, no negative values
+
+; compute the value of (r6 & 0x1) ^ ((r6 & 0x2) >> 1).
+; if the value is > 0, we have a negative
 smul_check_negative:
     and		r4,		r6,		#0x2
-    ;lsr		r4,		r4,		#0x1
     mov     r4,     r4,     lsr     #0x1
     and		r5,		r6,		#0x1
     eor		r5,		r4,		r5
     cmp		r5,		#0x0
-    bgt		smul_negate_return
-    b		smul_return
+    beq		smul_return
+
 smul_negate_return:
     bl		negate
 
 smul_return:
-    ldmfd	r13!,	{r4-r6, r11, pc}
+    ldmfd	r13!,	{r4-r8, r10-r11, pc}
 
 smul_test:
-    stmdb  r13!,   {r0-r8, r10-r11, lr}
+    stmfd  r13!,   {r4-r8, r10-r11, lr}
+
     mov		r0,		#0x3
-    mov		r1, 	#-4
+    mov		r1, 	#-0x4
     bl		smul
-    ldmfd  r13!,    {r0-r8, r10-r11, pc}
+    nop
+
+    mov     r0,     #-0x3
+    mov     r1,     #0x5
+    bl      smul
+    nop
+
+    mov     r0,     #-0x3
+    mov     r1,     #-0x5
+    bl      smul
+    nop
+
+    mov     r0,     #0x0
+    mov     r1,     #0x3
+    bl      smul
+    nop
+
+    mov     r0,     #0x3
+    mov     r1,     #0x0
+    bl      smul
+    nop
+
+    ldmfd  r13!,    {r4-r8, r10-r11, pc}
 
 lmul:
-    stmdb	r13!,   {r0-r8, r10-r11, lr}
+    stmfd	r13!,       {r4-r8, r10-r11, lr}
     mov		r11,		r13
     sub		r13,		r13,		#0x34 	; a, the remainder, x (the absolute value of b),
             ; the sign, x's iterator, and (up to) 9 sequential 32-bit sums
             ; the sign and x's iterator can both fit into 16 bits
-
-    mov
 
     ;------------------------------
     ; assess the signs of a and b
@@ -301,37 +367,46 @@ lmul_check_b_sign:
     orr		r4,		r4,		#0x2
 
 lmul_store_sign:
-    str		r4,		[r11, 	#-12]	; store the sign value for later
+    str		r4,		[r11, 	#-0x8]	; store the sign value for later
 
-;------------------------------
-; initialize the other locals
-;------------------------------
+    ;------------------------------
+    ; initialize the other locals
+    ;------------------------------
 
     ; store a's abs val, which is used as an initialization value in the loop
     bl		abs
-    str		r0,		[r11,	#-20]
+    str		r0,		[r11,	#-0x10]
 
 
     ; now, store b's abs val
     mov		r0,		r1
     bl		abs
-    str		r0,		[r11, 	#-4]		; x = abs(b)
+    str		r0,		[r11,   #-0x4]		; x = abs(b)
 
     ; take care of the rest
     mov		r4,		#0x0
-    str		r4,		[r11,	#-8] 	; remainder = 0
-    str		r4,		[r11,	#-16]	; xj = 0 (x's iterator)
+    str		r4,		[r11] 	; remainder = 0
+    str		r4,		[r11,   #-0xC]	; xj = 0 (x's iterator)
 
     ; MEMSET the buffer of 9 * 4 bytes of memory - remember, these are integers
     ; representing the sums
-    mov     r0,     r13             ; base is bottom
+    mov     r0,     r13             ; base of array is bottom
+    mov     r1,     #0x0
+    mov     r2,     #0x24           ; 36 bytes = 9 * 4
+    bl      memset
+
+    ldr     r4,     [r11,   #-0x4]       ; load x
+
+lmul_xloop:
+    cmp     r4,     #0x0
 
 
-    ldmfd	r13!,	{r0-r8, r10-r11, lr}
+    add     r13,    r13,    #0x34   ; for king and country
+    ldmfd	r13!,	{r4-r8, r10-r11, lr}
 
 
 is_mul_of_five:
-    stmdb	r13!,	{r11, lr}
+    stmfd	r13!,	{r11, lr}
 
 ;		store our fixed point constant for division by five: we begin with the following principal (2^16 / 5) ~=~ 0x3333.
 ;		if we shift left by 8 bits, we have: (2^24 / 5) ~=~ 0x333333
@@ -364,16 +439,12 @@ imof_false:
 imof_end:
     ldmfd	r13!,	{r11, pc}
 
-
-
-
-
 _start:
-    bl      memset_test
+    bl      ipow_test
     b       exit
 
 
-    stmdb	r13!, 	{r4, r11, lr}
+    stmfd	r13!, 	{r4, r11, lr}
 
     mov		r11,		r13
     sub		r13,		r13,		#0xC
@@ -433,8 +504,8 @@ continue_add_three:
 
     add		r13,		r13,		#0xC
 stop:
-    mov		r0,		r0
+    mov	   r0,		r0
 
 exit:
-	mov    r0, #0
+	mov    r0,     #0
 	swi    0x11
